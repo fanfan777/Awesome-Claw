@@ -1,10 +1,12 @@
 packages:
   - .
   - ui
+  - apps/electron
   - packages/*
   - extensions/*
 
 onlyBuiltDependencies:
+  - electron
   - "@lydell/node-pty"
   - "@matrix-org/matrix-sdk-crypto-nodejs"
   - "@napi-rs/canvas"
