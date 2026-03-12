@@ -561,6 +561,103 @@ export default {
       wizard: '向导',
       auth: '认证',
     },
+    fieldNames: {
+      // 通用
+      enabled: '启用',
+      name: '名称',
+      mode: '模式',
+      type: '类型',
+      port: '端口',
+      host: '主机',
+      bind: '绑定地址',
+      token: '令牌',
+      password: '密码',
+      timeout: '超时',
+      interval: '间隔',
+      auto: '自动',
+      force: '强制',
+      verbose: '详细输出',
+      debug: '调试',
+      network: '网络',
+      channel: '频道',
+      color: '颜色',
+      banner: '横幅',
+      flags: '标志',
+      vars: '变量',
+      level: '级别',
+      file: '文件',
+      // 元信息
+      lastTouchedVersion: '最后修改版本',
+      lastTouchedAt: '最后修改时间',
+      // 环境变量
+      shellEnv: 'Shell 环境',
+      // 向导
+      lastRunAt: '上次运行时间',
+      lastRunVersion: '上次运行版本',
+      lastRunCommit: '上次运行提交',
+      lastRunCommand: '上次运行命令',
+      lastRunMode: '上次运行模式',
+      // 诊断
+      stuckSessionWarnMs: '卡死会话警告(ms)',
+      otel: 'OpenTelemetry',
+      cacheTrace: '缓存追踪',
+      // 日志
+      maxFileBytes: '最大文件大小',
+      consoleLevel: '控制台级别',
+      consoleStyle: '控制台样式',
+      redactSensitive: '脱敏处理',
+      redactPatterns: '脱敏规则',
+      // 更新
+      checkOnStart: '启动时检查',
+      // 浏览器
+      evaluateEnabled: '启用执行',
+      cdpUrl: 'CDP 地址',
+      remoteCdpTimeoutMs: '远程 CDP 超时(ms)',
+      remoteCdpHandshakeTimeoutMs: '远程 CDP 握手超时(ms)',
+      executablePath: '可执行文件路径',
+      headless: '无头模式',
+      noSandbox: '禁用沙箱',
+      // Gateway
+      baseUrl: '基础地址',
+      apiKey: 'API 密钥',
+      maxRetries: '最大重试次数',
+      rateLimitRpm: '速率限制(rpm)',
+      // 会话
+      maxMessages: '最大消息数',
+      maxTokens: '最大 Token 数',
+      compactThreshold: '压缩阈值',
+      defaultAgent: '默认智能体',
+      // 模型
+      primary: '主模型',
+      fallbacks: '备选模型',
+      providers: '供应商',
+      thinkingLevel: '思考级别',
+      // 工具
+      profile: '工具模式',
+      allow: '允许列表',
+      deny: '拒绝列表',
+      // 沙箱
+      workspaceAccess: '工作区访问',
+      // 消息
+      systemPrompt: '系统提示',
+      maxHistory: '最大历史',
+      // 广播
+      targets: '目标',
+      // 记忆
+      backend: '存储后端',
+      // 审批
+      requireApproval: '需要审批',
+      // 媒体
+      maxSize: '最大大小',
+      allowedTypes: '允许的类型',
+      // 定时任务
+      schedule: '计划',
+      timezone: '时区',
+      // 语音
+      provider: '供应商',
+      voice: '语音',
+      speed: '速度',
+    },
   },
   usage: {
     title: '用量统计',

@@ -35,6 +35,12 @@ const filteredSections = computed(() => {
   return configStore.sections.filter(s => s.tags.includes(activeTagFilter.value!))
 })
 
+function fieldLabel(field: { key: string; label: string }): string {
+  const i18nKey = `config.fieldNames.${field.key}`
+  const translated = t(i18nKey)
+  return translated !== i18nKey ? translated : field.label
+}
+
 function sectionLabel(s: { key: string; title: string }): string {
   const i18nKey = `config.sectionNames.${s.key}`
   const translated = t(i18nKey)
@@ -402,10 +408,10 @@ watch(activeTab, (tab) => {
 
                     <NForm label-placement="left" label-width="200" size="small">
                       <template v-for="field in getFieldsForSection(section.key)" :key="field.path">
-                        <NFormItem :label="field.label">
+                        <NFormItem :label="fieldLabel(field)">
                           <template #label>
                             <NSpace :size="4" align="center" :wrap="false">
-                              <NText>{{ field.label }}</NText>
+                              <NText>{{ fieldLabel(field) }}</NText>
                               <NBadge v-if="configStore.isFieldDirty(field.path)" dot type="warning" />
                             </NSpace>
                           </template>
