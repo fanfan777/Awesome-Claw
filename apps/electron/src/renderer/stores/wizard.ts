@@ -18,7 +18,6 @@ export type WizardPhase =
   | "gateway-detect"
   | "gateway-connect"
   | "identity-setup"
-  | "skills-setup"
   | "server-wizard"
   | "complete";
 
@@ -127,7 +126,6 @@ export const useWizardStore = defineStore("wizard", () => {
       case "identity-setup":
         return 3;
       case "server-wizard":
-      case "skills-setup":
         return 4;
       case "complete":
         return 5;
@@ -298,7 +296,6 @@ export const useWizardStore = defineStore("wizard", () => {
       "gateway-detect",
       "gateway-connect",
       "identity-setup",
-      "skills-setup",
       "server-wizard",
       "complete",
     ];
@@ -535,12 +532,22 @@ export const useWizardStore = defineStore("wizard", () => {
           content: userContent,
         });
       }
-      // Write SOUL.md if user provided personality text
-      if (soulText.value.trim()) {
+      // Write SOUL.md — personality + language preference
+      {
+        const parts: string[] = ["# Personality\n"];
+        if (soulText.value.trim()) {
+          parts.push(soulText.value.trim() + "\n");
+        }
+        // Auto-set reply language based on wizard language selection
+        if (language.value.startsWith("zh")) {
+          parts.push("## Language\n\n请始终使用中文回复用户。\n");
+        } else {
+          parts.push("## Language\n\nAlways reply in English.\n");
+        }
         await client.request("agents.files.set", {
           agentId: "main",
           name: "SOUL.md",
-          content: `# Personality\n\n${soulText.value.trim()}\n`,
+          content: parts.join("\n"),
         });
       }
       // Advance to server wizard (model API key setup)
@@ -638,10 +645,9 @@ export const useWizardStore = defineStore("wizard", () => {
   }
 
   function continueFork() {
-    // User chose "高级设置" → go to skills setup first, then channels
+    // Continue with server wizard (channels config)
     showFork.value = false;
-    // Keep pendingChannelStep — it will be restored after skills setup
-    phase.value = "skills-setup";
+    phase.value = "server-wizard";
   }
 
   function continueAfterSkills() {

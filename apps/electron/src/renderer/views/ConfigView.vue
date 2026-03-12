@@ -33,9 +33,16 @@ const filteredSections = computed(() => {
   return configStore.sections.filter(s => s.tags.includes(activeTagFilter.value!))
 })
 
+function sectionLabel(s: { key: string; title: string }): string {
+  const i18nKey = `config.sectionNames.${s.key}`
+  const translated = t(i18nKey)
+  // If i18n returns the key itself, fall back to original title
+  return translated !== i18nKey ? translated : s.title
+}
+
 const menuOptions = computed<MenuOption[]>(() =>
   filteredSections.value.map(s => ({
-    label: s.title,
+    label: sectionLabel(s),
     key: s.key,
   }))
 )
@@ -381,7 +388,7 @@ watch(activeTab, (tab) => {
                   :id="`config-section-${section.key}`"
                   style="margin-bottom: 16px;"
                 >
-                  <NCard :title="section.title" size="small" :bordered="true">
+                  <NCard :title="sectionLabel(section)" size="small" :bordered="true">
                     <template #header-extra>
                       <NSpace :size="4">
                         <NTag v-for="tag in section.tags" :key="tag" size="tiny" :bordered="false">

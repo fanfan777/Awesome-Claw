@@ -19,7 +19,6 @@ import { useWizardStore } from '@renderer/stores/wizard'
 import { useConnectionStore } from '@renderer/gateway/connection'
 import { useWizardStepLocale, maskSensitiveContent } from '@renderer/composables/useWizardStepLocale'
 import MarkdownRenderer from '@renderer/components/common/MarkdownRenderer.vue'
-import WizardSkillsPhase from '@renderer/components/wizard/WizardSkillsPhase.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -136,10 +135,9 @@ watch(() => store.loading, (newVal, oldVal) => {
       }
     }
 
-    // Auto-skip channel selection step after model setup — channels can be configured later in ChannelsView
-    if (hasPassedModelSetup.value && isChannelSelectStep(store.stepData)) {
-      lastAutoStepId.value = store.stepData.id
-      nextTick(() => { store.submitAnswer('__skip__', { auto: true }) })
+    // Show channel fork when first channel step appears after model setup
+    if (hasPassedModelSetup.value && isChannelSelectStep(store.stepData) && !showChannelFork.value) {
+      showChannelFork.value = true
       return
     }
 
@@ -243,13 +241,54 @@ function isChannelSelectStep(step: { type: string; message?: string } | null): b
   return msg.includes('Select channel') || msg.includes('Select a channel')
 }
 
-// Track if we've passed model setup (to know when to show fork)
-// Note: WizardPrompter.text() doesn't support `sensitive`, so we detect
-// model setup by the auth provider selection step ("Model/auth provider")
+// Track if we've passed model setup (to intercept channel step with fork)
 const hasPassedModelSetup = computed(() => {
   return store.stepHistory.some(e =>
     e.step.type === 'select' && e.step.message === 'Model/auth provider',
   )
+})
+
+// Channel fork: offer "直接进入" vs "连接渠道" after model setup
+const showChannelFork = ref(false)
+
+// Channel display enhancement — show Chinese-friendly names and descriptions
+const CHANNEL_INFO: Record<string, { icon: string; zh: string; desc: string }> = {
+  telegram: { icon: '✈️', zh: 'Telegram 电报', desc: '全球流行的即时通讯' },
+  discord: { icon: '🎮', zh: 'Discord', desc: '游戏与社区聊天' },
+  feishu: { icon: '🐦', zh: '飞书 Feishu', desc: '字节跳动企业协作' },
+  slack: { icon: '💬', zh: 'Slack', desc: '企业团队协作' },
+  whatsapp: { icon: '📱', zh: 'WhatsApp', desc: '全球即时通讯' },
+  signal: { icon: '🔒', zh: 'Signal', desc: '加密安全通讯' },
+  msteams: { icon: '🏢', zh: 'Microsoft Teams', desc: '微软企业协作' },
+  matrix: { icon: '🌐', zh: 'Matrix', desc: '去中心化通讯' },
+  line: { icon: '🟢', zh: 'LINE', desc: '亚洲流行通讯' },
+  irc: { icon: '💻', zh: 'IRC', desc: '经典互联网聊天' },
+  googlechat: { icon: '📧', zh: 'Google Chat', desc: 'Google 工作区' },
+  mattermost: { icon: '📢', zh: 'Mattermost', desc: '开源企业通讯' },
+  nostr: { icon: '🔗', zh: 'Nostr', desc: '去中心化社交' },
+  bluebubbles: { icon: '🫧', zh: 'BlueBubbles', desc: 'iMessage 桥接' },
+  twitch: { icon: '🎬', zh: 'Twitch', desc: '直播平台聊天' },
+  zalo: { icon: '💙', zh: 'Zalo', desc: '越南流行通讯' },
+  synologychat: { icon: '🗂️', zh: 'Synology Chat', desc: '群晖 NAS 聊天' },
+  nextcloudtalk: { icon: '☁️', zh: 'Nextcloud Talk', desc: '开源云端通讯' },
+  skip: { icon: '⏭️', zh: '跳过', desc: '稍后在渠道管理中配置' },
+  __skip__: { icon: '⏭️', zh: '跳过', desc: '稍后在渠道管理中配置' },
+}
+
+const isChannelStep = computed(() => {
+  return store.stepData ? isChannelSelectStep(store.stepData) : false
+})
+
+const channelEnhancedOptions = computed(() => {
+  if (!isChannelStep.value) return displayOptions.value
+  return displayOptions.value.map(opt => {
+    const key = String(opt.value).toLowerCase()
+    const info = CHANNEL_INFO[key]
+    if (info && locale.value.startsWith('zh')) {
+      return { ...opt, label: `${info.icon} ${info.zh}`, hint: info.desc }
+    }
+    return opt
+  })
 })
 
 // ── Phase: Welcome ──
@@ -337,7 +376,6 @@ watch(() => store.phase, async (newPhase) => {
   }
   if (newPhase === 'server-wizard' && !store.sessionId) {
     // Only start a new wizard when entering for the first time.
-    // When returning from skills-setup, the existing session is still active.
     await store.startWizard()
   }
   // identity-setup is purely client-side, no async init needed
@@ -401,14 +439,17 @@ function handleDeselectAll() {
   store.currentAnswer = []
 }
 
-// ── Fork handlers ──
+// ── Channel fork handlers ──
 
-function handleForkStart() {
-  store.skipToComplete()
+function handleSkipChannels() {
+  showChannelFork.value = false
+  // Skip channel selection and go to complete
+  store.submitAnswer('__skip__', { auto: true })
 }
 
-function handleForkContinue() {
-  store.continueFork()
+function handleSetupChannels() {
+  showChannelFork.value = false
+  // Channel step is already in store.stepData, just let it render
 }
 
 // ── Phase: Complete ──
@@ -634,11 +675,6 @@ async function handleSkipWizard() {
           </div>
         </NCard>
 
-        <!-- ==================== SKILLS SETUP ==================== -->
-        <NCard v-else-if="store.phase === 'skills-setup'" key="skills" class="wizard-card wizard-card--wide" :bordered="false">
-          <WizardSkillsPhase />
-        </NCard>
-
         <!-- ==================== SERVER WIZARD ==================== -->
         <NCard
           v-else-if="store.phase === 'server-wizard'"
@@ -646,25 +682,25 @@ async function handleSkipWizard() {
           class="wizard-card"
           :bordered="false"
         >
-          <!-- Fork: "开始使用" vs "继续配置" -->
-          <div v-if="store.showFork" class="step-content">
+          <!-- Channel fork: "直接进入" vs "连接渠道" -->
+          <div v-if="showChannelFork" class="step-content">
             <h3 class="step-title">{{ t('wizard.forkTitle') }}</h3>
             <NText depth="2" style="display: block; margin-bottom: 20px; line-height: 1.6;">
               {{ t('wizard.forkDesc') }}
             </NText>
 
             <div class="option-cards">
-              <div class="option-card fork-card fork-card--start" @click="handleForkStart">
+              <div class="option-card fork-card" @click="handleSetupChannels">
                 <div class="option-card-body">
-                  <span class="option-label" style="font-size: 15px;">🚀 {{ t('wizard.forkStart') }}</span>
-                  <span class="option-hint">{{ t('wizard.forkStartHint') }}</span>
+                  <span class="option-label" style="font-size: 15px;">📡 {{ t('wizard.forkChannels') }}</span>
+                  <span class="option-hint">{{ t('wizard.forkChannelsHint') }}</span>
                 </div>
                 <span class="option-arrow">&#8250;</span>
               </div>
-              <div class="option-card fork-card fork-card--continue" @click="handleForkContinue">
+              <div class="option-card fork-card" @click="handleSkipChannels">
                 <div class="option-card-body">
-                  <span class="option-label" style="font-size: 15px;">⚙️ {{ t('wizard.forkContinue') }}</span>
-                  <span class="option-hint">{{ t('wizard.forkContinueHint') }}</span>
+                  <span class="option-label" style="font-size: 15px;">🚀 {{ t('wizard.forkSkip') }}</span>
+                  <span class="option-hint">{{ t('wizard.forkSkipHint') }}</span>
                 </div>
                 <span class="option-arrow">&#8250;</span>
               </div>
@@ -784,6 +820,28 @@ async function handleSkipWizard() {
                     <span class="option-label">{{ skipProviderOption.label }}</span>
                   </div>
                   <span class="option-arrow">&#8250;</span>
+                </div>
+              </template>
+
+              <!-- Channel select step: enhanced with Chinese-friendly names -->
+              <template v-else-if="isChannelStep">
+                <NText depth="2" style="display: block; margin-bottom: 12px; font-size: 13px;">
+                  {{ locale.startsWith('zh') ? '选择要连接的聊天平台：' : 'Select a messaging platform to connect:' }}
+                </NText>
+                <div class="option-cards">
+                  <div
+                    v-for="opt in channelEnhancedOptions"
+                    :key="String(opt.value)"
+                    class="option-card"
+                    :class="{ 'option-card--active': store.currentAnswer === opt.value, 'option-card--loading': store.loading }"
+                    @click="!store.loading && handleSelectOption(opt.value)"
+                  >
+                    <div class="option-card-body">
+                      <span class="option-label">{{ opt.label }}</span>
+                      <span v-if="opt.hint" class="option-hint">{{ opt.hint }}</span>
+                    </div>
+                    <span class="option-arrow">&#8250;</span>
+                  </div>
                 </div>
               </template>
 

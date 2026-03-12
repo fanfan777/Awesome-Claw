@@ -127,6 +127,7 @@ import {
   BarChartOutline,
   DocumentTextOutline,
   BugOutline,
+  PersonOutline,
   SunnyOutline,
   MoonOutline,
   ContrastOutline,
@@ -212,6 +213,11 @@ const menuOptions = computed<MenuOption[]>(() => [
     label: t("nav.instances"),
     key: "instances",
     icon: renderIcon(PeopleOutline),
+  },
+  {
+    label: t("nav.personality"),
+    key: "personality",
+    icon: renderIcon(PersonOutline),
   },
   {
     label: t("nav.config"),
