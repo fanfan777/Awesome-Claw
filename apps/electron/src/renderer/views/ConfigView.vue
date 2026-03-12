@@ -14,8 +14,10 @@ import {
   isSensitiveKey, detectFieldType, CATEGORY_TAGS
 } from '@renderer/stores/config'
 import JsonEditor from '@renderer/components/common/JsonEditor.vue'
+import { useConnectionStore } from '@renderer/gateway/connection'
 
 const { t } = useI18n()
+const conn = useConnectionStore()
 const configStore = useConfigStore()
 
 const activeTab = ref<'form' | 'table' | 'json'>('form')
@@ -268,6 +270,7 @@ function scrollToSection(key: string) {
 
 // --- Init ---
 onMounted(async () => {
+  if (!conn.isConnected) return
   await Promise.all([configStore.fetchConfig(), configStore.fetchSchema()])
   syncJsonFromConfig()
   if (configStore.sections.length > 0) {

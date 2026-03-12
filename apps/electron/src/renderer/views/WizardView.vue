@@ -35,6 +35,13 @@ const langOptions: SelectOption[] = [
 
 const EMOJI_OPTIONS = ['🤖', '🧠', '🐱', '🐶', '🦊', '🐼', '🦉', '🐙', '🌟', '⚡', '🔮', '🎯', '💡', '🚀', '🎨', '🌈']
 
+const toolProfileOptions = computed(() => [
+  { label: locale.value.startsWith('zh') ? '🔓 完整权限 — 文件读写、终端、网络等全部工具' : '🔓 Full — All tools: files, terminal, network, etc.', value: 'full' },
+  { label: locale.value.startsWith('zh') ? '💻 编程模式 — 代码编辑、终端、开发工具' : '💻 Coding — Code editing, terminal, dev tools', value: 'coding' },
+  { label: locale.value.startsWith('zh') ? '💬 消息模式 — 仅聊天和消息相关工具' : '💬 Messaging — Chat and messaging tools only', value: 'messaging' },
+  { label: locale.value.startsWith('zh') ? '🔒 最小权限 — 仅基本对话，无工具访问' : '🔒 Minimal — Basic chat only, no tool access', value: 'minimal' },
+])
+
 // Sync locale whenever language changes
 watch(() => store.language, (lang) => {
   locale.value = lang
@@ -652,6 +659,21 @@ async function handleSkipWizard() {
                   :placeholder="locale.startsWith('zh')
                     ? '如: 专业严谨的技术助手，回答简洁准确；或 友好活泼、善于用比喻解释复杂概念'
                     : 'e.g. A professional and precise tech assistant; or friendly and creative with analogies'"
+                />
+              </div>
+
+              <!-- Tool profile -->
+              <div>
+                <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 4px;">
+                  {{ t('wizard.toolProfile') }}
+                </NText>
+                <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 8px; opacity: 0.7;">
+                  {{ t('wizard.toolProfileHint') }}
+                </NText>
+                <NSelect
+                  v-model:value="store.toolProfile"
+                  :options="toolProfileOptions"
+                  style="width: 260px;"
                 />
               </div>
 

@@ -202,13 +202,19 @@ export const useAgentsStore = defineStore("agents", () => {
   ): Promise<Agent | null> {
     error.value = null;
     try {
-      // Schema: { agentId, name?, workspace?, model?, avatar? }
       const agent = await getClient().request<Agent>("agents.update", {
         agentId: id,
         ...(params.name ? { name: params.name } : {}),
         ...(params.workspace ? { workspace: params.workspace } : {}),
         ...(params.model ? { model: params.model } : {}),
-        ...(params.avatar !== undefined ? { avatar: params.avatar } : {}),
+        ...(params.identity?.avatar !== undefined ? { avatar: params.identity.avatar } : {}),
+        ...(params.tools ? { tools: params.tools } : {}),
+        ...(params.groupChat ? { groupChat: params.groupChat } : {}),
+        ...(params.sandbox ? { sandbox: params.sandbox } : {}),
+        ...(params.thinkingLevel ? { thinkingLevel: params.thinkingLevel } : {}),
+        ...(params.humanDelay !== undefined ? { humanDelay: params.humanDelay } : {}),
+        ...(params.skills ? { skills: params.skills } : {}),
+        ...(params.subagents ? { subagents: params.subagents } : {}),
       });
       const idx = agents.value.findIndex((a) => a.id === id);
       if (idx !== -1) {agents.value[idx] = agent;}
@@ -264,7 +270,7 @@ export const useAgentsStore = defineStore("agents", () => {
     try {
       const result = await getClient().request<{ content: string }>(
         "agents.files.get",
-        { agentId, filename },
+        { agentId, name: filename },
       );
       const content = result.content ?? "";
       files.value[filename] = {
@@ -289,7 +295,7 @@ export const useAgentsStore = defineStore("agents", () => {
     try {
       await getClient().request("agents.files.set", {
         agentId,
-        filename,
+        name: filename,
         content,
       });
       files.value[filename] = { name: filename, content, size: content.length };

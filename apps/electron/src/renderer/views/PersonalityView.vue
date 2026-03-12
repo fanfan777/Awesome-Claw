@@ -24,6 +24,14 @@ const agentEmoji = ref('🤖')
 const userName = ref('')
 const personality = ref('')
 const replyLanguage = ref('zh-CN')
+const toolProfile = ref('full')
+
+const toolProfileOptions = computed(() => [
+  { label: zh.value ? '🔓 完整权限 — 全部工具' : '🔓 Full — All tools', value: 'full' },
+  { label: zh.value ? '💻 编程模式 — 代码与终端' : '💻 Coding — Code & terminal', value: 'coding' },
+  { label: zh.value ? '💬 消息模式 — 仅聊天' : '💬 Messaging — Chat only', value: 'messaging' },
+  { label: zh.value ? '🔒 最小权限 — 无工具' : '🔒 Minimal — No tools', value: 'minimal' },
+])
 
 // Raw MD content (advanced)
 const rawIdentity = ref('')
@@ -111,6 +119,13 @@ async function loadFiles() {
       parseUser(rawUser.value)
     } catch { rawUser.value = '' }
 
+    // Load tool profile from agent config
+    try {
+      const agentRes = await client.request<{ agents: Array<{ id: string; tools?: { profile?: string } }> }>('agents.list')
+      const main = agentRes.agents?.find(a => a.id === 'main')
+      if (main?.tools?.profile) toolProfile.value = main.tools.profile
+    } catch { /* best-effort */ }
+
     dirty.value = false
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load files'
@@ -166,6 +181,14 @@ async function saveAll() {
         content: generateUserMd(),
       })
     }
+
+    // Save tool profile
+    try {
+      await client.request('agents.update', {
+        agentId: 'main',
+        tools: { profile: toolProfile.value },
+      })
+    } catch { /* best-effort */ }
 
     // Update raw content to match
     rawIdentity.value = generateIdentityMd()
@@ -223,6 +246,7 @@ async function resetToDefaults() {
   userName.value = ''
   personality.value = ''
   replyLanguage.value = locale.value.startsWith('zh') ? 'zh-CN' : 'en'
+  toolProfile.value = 'full'
   dirty.value = true
   await saveAll()
 }
@@ -244,7 +268,7 @@ onMounted(() => {
     </div>
 
     <NAlert v-if="!conn.isConnected" type="warning" style="margin-bottom: 16px;">
-      {{ zh ? 'Gateway 未连接，无法加载或保存设置' : 'Gateway not connected' }}
+      {{ t('personality.gatewayNotConnected') }}
     </NAlert>
 
     <NAlert v-if="error" type="error" closable style="margin-bottom: 16px;" @close="error = null">
@@ -252,7 +276,7 @@ onMounted(() => {
     </NAlert>
 
     <NAlert v-if="success" type="success" style="margin-bottom: 16px;">
-      {{ zh ? '保存成功' : 'Saved successfully' }}
+      {{ t('personality.savedSuccess') }}
     </NAlert>
 
     <NSpin :show="loading">
@@ -314,6 +338,20 @@ onMounted(() => {
               v-model:value="replyLanguage"
               :options="langOptions"
               style="width: 200px;"
+              @update:value="markDirty"
+            />
+          </div>
+
+          <!-- Tool profile -->
+          <div>
+            <NText depth="3" class="field-label">{{ t('personality.toolProfile') }}</NText>
+            <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 4px; opacity: 0.7;">
+              {{ t('personality.toolProfileHint') }}
+            </NText>
+            <NSelect
+              v-model:value="toolProfile"
+              :options="toolProfileOptions"
+              style="width: 320px;"
               @update:value="markDirty"
             />
           </div>

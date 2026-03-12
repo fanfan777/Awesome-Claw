@@ -2,7 +2,6 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { useConnectionStore } from "@renderer/gateway/connection";
 import { markWizardCompleted } from "@renderer/router";
-import { SKILL_CATALOG, type SkillCatalogItem } from "@renderer/data/skills-catalog";
 
 export type WizardStepType =
   | "note"
@@ -74,15 +73,8 @@ export const useWizardStore = defineStore("wizard", () => {
   const identityEmoji = ref("🤖");
   const userName = ref("");
   const soulText = ref("");
+  const toolProfile = ref("full");
   const identitySaving = ref(false);
-
-  // -- Skills setup state (client-side) --
-  const skillsSelectedIds = ref(new Set<string>());
-  const skillsActiveCategory = ref("backend");
-  const skillsInstalling = ref(false);
-  const skillsInstallProgress = ref({ current: 0, total: 0 });
-  const skillsPreviewId = ref<string | null>(null);
-  const skillsPreviewContent = ref<string | null>(null);
 
   // -- Fork state (after model API key) --
   const showFork = ref(false);
@@ -231,7 +223,7 @@ export const useWizardStore = defineStore("wizard", () => {
       const disc = await api.discover();
       if (disc.found) {
         gatewayFound.value = true;
-        gatewayUrl.value = disc.url;
+        gatewayUrl.value = disc.url.replace(/^http/, "ws");
         gatewayVersion.value = disc.version ?? null;
       } else {
         error.value = "Gateway start timeout";
@@ -369,7 +361,9 @@ export const useWizardStore = defineStore("wizard", () => {
             }
           }
         } catch { /* fallthrough to error */ }
-        error.value = "有其他向导正在运行，请重启应用后重试";
+        error.value = language.value.startsWith("zh")
+          ? "有其他向导正在运行，请重启应用后重试"
+          : "Another wizard is already running. Please restart the app and try again.";
       } else {
         error.value = msg;
       }
@@ -550,6 +544,21 @@ export const useWizardStore = defineStore("wizard", () => {
           content: parts.join("\n"),
         });
       }
+      // Set tool profile based on user selection
+      try {
+        await client.request("agents.update", {
+          agentId: "main",
+          tools: { profile: toolProfile.value },
+        });
+      } catch {
+        // Non-critical: fresh installs may not have agents.update ready yet
+        // Fall back to config.patch
+        try {
+          await client.request("config.patch", {
+            patch: { agents: { main: { tools: { profile: toolProfile.value } } } },
+          });
+        } catch { /* best-effort */ }
+      }
       // Advance to server wizard (model API key setup)
       phase.value = "server-wizard";
     } catch (err) {
@@ -559,90 +568,7 @@ export const useWizardStore = defineStore("wizard", () => {
     }
   }
 
-  // -- Skills setup actions --
-
-  function toggleSkillSelection(skillId: string) {
-    const s = new Set(skillsSelectedIds.value);
-    if (s.has(skillId)) {
-      s.delete(skillId);
-    } else {
-      s.add(skillId);
-    }
-    skillsSelectedIds.value = s;
-  }
-
-  function setActiveCategory(categoryId: string) {
-    skillsActiveCategory.value = categoryId;
-  }
-
-  async function installSelectedSkills(): Promise<void> {
-    if (skillsSelectedIds.value.size === 0) {
-      continueAfterSkills();
-      return;
-    }
-
-    skillsInstalling.value = true;
-    error.value = null;
-    const selected = Array.from(skillsSelectedIds.value);
-    skillsInstallProgress.value = { current: 0, total: selected.length };
-
-    try {
-      const client = getClient();
-      for (const skillId of selected) {
-        const item = SKILL_CATALOG.find((s: SkillCatalogItem) => s.id === skillId);
-        if (!item) {continue;}
-
-        try {
-          if (item.source === "builtin") {
-            // Enable built-in skill via skills.update
-            await client.request("skills.update", {
-              skillKey: skillId,
-              enabled: true,
-            });
-          } else {
-            // Install ClawHub skill
-            const slug = skillId.replace(/^clawhub:/, "");
-            await client.request("skills.install", {
-              name: slug,
-              installId: `wizard-${Date.now()}-${slug}`,
-            });
-          }
-        } catch {
-          // Best-effort: continue with remaining skills
-        }
-        skillsInstallProgress.value = {
-          current: skillsInstallProgress.value.current + 1,
-          total: selected.length,
-        };
-      }
-      continueAfterSkills();
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : "Failed to install skills";
-    } finally {
-      skillsInstalling.value = false;
-    }
-  }
-
-  function skipSkillsSetup() {
-    continueAfterSkills();
-  }
-
-  async function previewSkillReadme(skillId: string): Promise<void> {
-    skillsPreviewId.value = skillId;
-    skillsPreviewContent.value = null;
-    const item = SKILL_CATALOG.find((s: SkillCatalogItem) => s.id === skillId);
-    if (!item) {return;}
-    // Show description as preview (SKILL.md not always accessible via RPC)
-    const lang = language.value.startsWith("zh") ? "zh" : "en";
-    skillsPreviewContent.value = `# ${item.name[lang]}\n\n${item.description[lang]}\n\n**Source:** ${item.source === "builtin" ? "Built-in" : "ClawHub"}`;
-  }
-
   // -- Fork: intercept channel step after model key --
-
-  function enterFork(channelStep: WizardStep) {
-    pendingChannelStep.value = channelStep;
-    showFork.value = true;
-  }
 
   function continueFork() {
     // Continue with server wizard (channels config)
@@ -650,22 +576,8 @@ export const useWizardStore = defineStore("wizard", () => {
     phase.value = "server-wizard";
   }
 
-  function continueAfterSkills() {
-    // Restore pending channel step and return to server wizard for channels
-    if (pendingChannelStep.value) {
-      stepData.value = pendingChannelStep.value;
-      if (pendingChannelStep.value.type === "multiselect") {
-        currentAnswer.value = pendingChannelStep.value.initialValue ?? [];
-      } else {
-        currentAnswer.value = pendingChannelStep.value.initialValue ?? null;
-      }
-      pendingChannelStep.value = null;
-    }
-    phase.value = "server-wizard";
-  }
-
   async function skipToComplete() {
-    // User chose "开始使用" → cancel wizard and go to complete
+    // User chose "直接进入" → cancel wizard and go to complete
     showFork.value = false;
     pendingChannelStep.value = null;
     try {
@@ -702,15 +614,10 @@ export const useWizardStore = defineStore("wizard", () => {
     identityEmoji.value = "🤖";
     userName.value = "";
     soulText.value = "";
+    toolProfile.value = "full";
     identitySaving.value = false;
     showFork.value = false;
     pendingChannelStep.value = null;
-    skillsSelectedIds.value = new Set();
-    skillsActiveCategory.value = "backend";
-    skillsInstalling.value = false;
-    skillsInstallProgress.value = { current: 0, total: 0 };
-    skillsPreviewId.value = null;
-    skillsPreviewContent.value = null;
   }
 
   return {
@@ -731,28 +638,14 @@ export const useWizardStore = defineStore("wizard", () => {
     identityEmoji,
     userName,
     soulText,
+    toolProfile,
     identitySaving,
     saveIdentity,
-
-    // Skills setup
-    skillsSelectedIds,
-    skillsActiveCategory,
-    skillsInstalling,
-    skillsInstallProgress,
-    skillsPreviewId,
-    skillsPreviewContent,
-    toggleSkillSelection,
-    setActiveCategory,
-    installSelectedSkills,
-    skipSkillsSetup,
-    previewSkillReadme,
 
     // Fork state
     showFork,
     pendingChannelStep,
-    enterFork,
     continueFork,
-    continueAfterSkills,
     skipToComplete,
 
     // Server wizard state

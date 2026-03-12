@@ -125,6 +125,11 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 <template>
   <div class="overview-view">
     <NSpace vertical :size="16">
+      <!-- Disconnected warning -->
+      <NAlert v-if="!conn.isConnected" type="warning" style="margin-bottom: 4px;">
+        {{ t('overview.notConnected') }}
+      </NAlert>
+
       <!-- Auth error help -->
       <NAlert v-if="hasAuthError" type="error" :title="t('overview.authError')">
         <NText>{{ t('overview.authErrorHelp') }}</NText>

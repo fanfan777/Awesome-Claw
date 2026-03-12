@@ -39,13 +39,13 @@ onMounted(async () => {
 <template>
   <div class="connection-view">
     <NSpace vertical :size="16" style="max-width: 600px; margin: 0 auto;">
-      <NCard title="Gateway Connection">
+      <NCard :title="t('connection.title')">
         <NAlert
           v-if="conn.status === ConnectionStatus.Connected"
           type="success"
           style="margin-bottom: 16px;"
         >
-          Connected to {{ conn.url }}
+          {{ t('connection.connectedTo') }} {{ conn.url }}
           <template v-if="conn.serverVersion">
             — v{{ conn.serverVersion }}
           </template>
@@ -55,39 +55,39 @@ onMounted(async () => {
           type="error"
           style="margin-bottom: 16px;"
         >
-          {{ conn.errorMessage ?? 'Connection error' }}
+          {{ conn.errorMessage ?? t('gateway.error') }}
         </NAlert>
         <NAlert
           v-else-if="conn.status === ConnectionStatus.Connecting || conn.status === ConnectionStatus.Reconnecting"
           type="warning"
           style="margin-bottom: 16px;"
         >
-          {{ conn.status === ConnectionStatus.Connecting ? 'Connecting…' : 'Reconnecting…' }}
+          {{ conn.status === ConnectionStatus.Connecting ? t('gateway.connecting') : t('gateway.reconnecting') }}
         </NAlert>
 
         <NForm label-placement="left" label-width="120">
-          <NFormItem label="Gateway URL">
+          <NFormItem :label="t('gateway.url')">
             <NInput
               v-model:value="conn.url"
               placeholder="ws://127.0.0.1:18789"
               :disabled="conn.isConnected"
             />
           </NFormItem>
-          <NFormItem label="Access Token">
+          <NFormItem :label="t('gateway.token')">
             <NInput
               v-model:value="conn.token"
               type="password"
               show-password-on="click"
-              placeholder="Optional token"
+              :placeholder="t('connection.optionalToken')"
               :disabled="conn.isConnected"
             />
           </NFormItem>
-          <NFormItem label="Password">
+          <NFormItem :label="t('gateway.password')">
             <NInput
               v-model:value="conn.password"
               type="password"
               show-password-on="click"
-              placeholder="Optional password"
+              :placeholder="t('connection.optionalPassword')"
               :disabled="conn.isConnected"
             />
           </NFormItem>
@@ -100,24 +100,24 @@ onMounted(async () => {
             :loading="conn.status === ConnectionStatus.Connecting"
             @click="handleConnect"
           >
-            Connect
+            {{ t('gateway.connectBtn') }}
           </NButton>
           <NButton v-else type="warning" @click="handleDisconnect">
-            Disconnect
+            {{ t('gateway.disconnectBtn') }}
           </NButton>
           <NButton
             secondary
             :disabled="conn.isConnected"
             @click="handleAutoDiscover"
           >
-            Auto-Discover
+            {{ t('connection.autoDiscover') }}
           </NButton>
         </NSpace>
       </NCard>
 
-      <NCard title="Gateway Process">
+      <NCard :title="t('connection.processTitle')">
         <NText depth="3" style="display:block; margin-bottom:12px; font-size:13px;">
-          Control the local OpenClaw gateway process.
+          {{ t('connection.processDesc') }}
         </NText>
         <ProcessControls />
       </NCard>
