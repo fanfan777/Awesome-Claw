@@ -7,9 +7,11 @@ import {
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { useConnectionStore } from '@renderer/gateway/connection'
+import { useAgentsStore } from '@renderer/stores/agents'
 
 const { t, locale } = useI18n()
 const conn = useConnectionStore()
+const agentsStore = useAgentsStore()
 
 const EMOJI_OPTIONS = ['🤖', '🧠', '🐱', '🐶', '🦊', '🐼', '🦉', '🐙', '🌟', '⚡', '🔮', '🎯', '💡', '🚀', '🎨', '🌈']
 
@@ -195,6 +197,9 @@ async function saveAll() {
     rawSoul.value = generateSoulMd()
     rawUser.value = generateUserMd()
 
+    // Refresh sidebar identity display
+    await agentsStore.fetchMainAgentIdentity()
+
     success.value = true
     dirty.value = false
     setTimeout(() => { success.value = false }, 3000)
@@ -230,6 +235,10 @@ async function saveRaw() {
     parseIdentity(rawIdentity.value)
     parseSoul(rawSoul.value)
     parseUser(rawUser.value)
+
+    // Refresh sidebar identity display
+    await agentsStore.fetchMainAgentIdentity()
+
     success.value = true
     dirty.value = false
     setTimeout(() => { success.value = false }, 3000)
