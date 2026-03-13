@@ -6,12 +6,10 @@ import {
   NFormItem, NForm, NAlert, NInputNumber
 } from 'naive-ui'
 import { useConfigStore } from '@renderer/stores/config'
-import { useSkillsStore } from '@renderer/stores/skills'
 import { useConnectionStore } from '@renderer/gateway/connection'
 
 const { t } = useI18n()
 const configStore = useConfigStore()
-const skillsStore = useSkillsStore()
 const conn = useConnectionStore()
 
 const loading = ref(false)
@@ -148,28 +146,12 @@ async function saveAll() {
   }
 }
 
-/* ---------- MCP (mcporter) — immediate toggle (skill, not config) ---------- */
-const mcporterEnabled = computed(() => {
-  const skill = skillsStore.skills.find(s => s.id === 'mcporter')
-  return skill?.enabled ?? false
-})
-
-async function toggleMcporter(enable: boolean) {
-  saving.value = true
-  try {
-    await skillsStore.toggleSkill('mcporter', enable)
-  } finally {
-    saving.value = false
-  }
-}
-
 /* ---------- Init ---------- */
 onMounted(async () => {
   if (!conn.isConnected) return
   loading.value = true
   await Promise.all([
     configStore.fetchConfig(),
-    skillsStore.fetchStatus(),
   ])
   loadFromConfig()
   loading.value = false
@@ -267,24 +249,6 @@ onMounted(async () => {
         <NText depth="3" style="font-size: 12px;">
           {{ t('tools.webFetchHint') }}
         </NText>
-      </NCard>
-
-      <!-- MCP -->
-      <NCard :title="t('tools.mcpTitle')" size="small" style="margin-bottom: 12px;">
-        <NForm label-placement="left" label-width="120" size="small">
-          <NFormItem :label="t('common.enabled')">
-            <NSwitch :value="mcporterEnabled" :loading="saving" @update:value="toggleMcporter" />
-          </NFormItem>
-        </NForm>
-        <NText depth="3" style="font-size: 12px;">
-          {{ t('tools.mcpHint') }}
-        </NText>
-        <NAlert v-if="mcporterEnabled" type="success" style="margin-top: 8px;">
-          {{ t('tools.mcpEnabled') }}
-        </NAlert>
-        <NAlert v-else type="info" style="margin-top: 8px;">
-          {{ t('tools.mcpDisabled') }}
-        </NAlert>
       </NCard>
 
       <!-- Dirty indicator -->
