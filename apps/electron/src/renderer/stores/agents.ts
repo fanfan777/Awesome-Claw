@@ -132,6 +132,10 @@ export const useAgentsStore = defineStore("agents", () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
 
+  // Main agent display identity (loaded from IDENTITY.md)
+  const mainAgentDisplayName = ref("OpenClaw");
+  const mainAgentEmoji = ref("🤖");
+
   const hasFileDrafts = computed(() => {
     return Object.keys(fileDrafts.value).some((key) => {
       const file = files.value[key];
@@ -329,6 +333,23 @@ export const useAgentsStore = defineStore("agents", () => {
     }
   }
 
+  /** Load the main agent's display name and emoji from IDENTITY.md */
+  async function fetchMainAgentIdentity() {
+    try {
+      const res = await getClient().request<{ content: string }>(
+        "agents.files.get",
+        { agentId: "main", name: "IDENTITY.md" },
+      );
+      const content = res.content ?? "";
+      const nameMatch = content.match(/^#\s+(.+)/m);
+      if (nameMatch) {mainAgentDisplayName.value = nameMatch[1].trim();}
+      const emojiMatch = content.match(/Avatar:\s*(\S+)/);
+      if (emojiMatch) {mainAgentEmoji.value = emojiMatch[1];}
+    } catch {
+      // best-effort — keep defaults
+    }
+  }
+
   function selectAgent(agent: Agent | null) {
     selectedAgent.value = agent;
     files.value = {};
@@ -345,7 +366,10 @@ export const useAgentsStore = defineStore("agents", () => {
     error,
     hasFileDrafts,
     agentOptions,
+    mainAgentDisplayName,
+    mainAgentEmoji,
     fetchAgents,
+    fetchMainAgentIdentity,
     createAgent,
     updateAgent,
     deleteAgent,

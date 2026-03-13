@@ -13,7 +13,7 @@ export interface ToolCall {
 }
 
 export interface Attachment {
-  type: "image" | "file";
+  type: "image" | "file" | "audio";
   name: string;
   data: string;
   mimeType?: string;
@@ -50,6 +50,7 @@ export interface SendOptions {
   model?: string;
   thinking?: string;
   images?: Array<{ data: string; mimeType: string }>;
+  files?: Array<{ data: string; name: string; mimeType: string }>;
 }
 
 export interface ChatEventPayload {
@@ -164,6 +165,15 @@ export const useChatStore = defineStore("chat", () => {
         mimeType: img.mimeType,
       }));
     }
+    if (options?.files && options.files.length > 0) {
+      const fileAtts = options.files.map((f) => ({
+        type: "file" as const,
+        name: f.name,
+        data: f.data,
+        mimeType: f.mimeType,
+      }));
+      userMessage.attachments = [...(userMessage.attachments ?? []), ...fileAtts];
+    }
 
     messages.value.push(userMessage);
 
@@ -172,19 +182,32 @@ export const useChatStore = defineStore("chat", () => {
       const resolvedKey = key || `electron:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const idempotencyKey = `${resolvedKey}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+      // Strip data-URL prefix to get raw base64
+      function stripDataUrl(dataUrl: string): string {
+        const idx = dataUrl.indexOf(",");
+        return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+      }
+
+      const allAttachments: Array<Record<string, unknown>> = [];
+      if (options?.images) {
+        for (const img of options.images) {
+          allAttachments.push({ type: "image", data: stripDataUrl(img.data), mimeType: img.mimeType });
+        }
+      }
+      if (options?.files) {
+        for (const f of options.files) {
+          allAttachments.push({ type: "file", name: f.name, data: stripDataUrl(f.data), mimeType: f.mimeType });
+        }
+      }
+
       const params: Record<string, unknown> = {
         sessionKey: resolvedKey,
-        message: content,
         idempotencyKey,
       };
+      // Only include message if non-empty; gateway requires message OR attachments
+      if (content) {params.message = content;}
+      if (allAttachments.length > 0) {params.attachments = allAttachments;}
       if (options?.thinking) {params.thinking = options.thinking;}
-      if (options?.images) {
-        params.attachments = options.images.map((img) => ({
-          type: "image",
-          data: img.data,
-          mimeType: img.mimeType,
-        }));
-      }
 
       console.log("[chat-store] sending chat.send:", params);
       const result = await getClient().request<{ sessionKey: string }>(

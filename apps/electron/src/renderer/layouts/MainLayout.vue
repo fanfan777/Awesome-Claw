@@ -12,8 +12,8 @@
     >
       <!-- Logo area -->
       <div class="sidebar-logo" :class="{ collapsed }">
-        <span v-if="!collapsed" class="logo-text">OpenClaw</span>
-        <span v-else class="logo-icon">OC</span>
+        <span class="logo-emoji">{{ agentsStore.mainAgentEmoji }}</span>
+        <span v-if="!collapsed" class="logo-text">{{ agentsStore.mainAgentDisplayName }}</span>
       </div>
 
       <!-- Navigation menu -->
@@ -97,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, onUnmounted, onErrorCaptured } from "vue";
+import { ref, computed, h, watch, onMounted, onUnmounted, onErrorCaptured } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
@@ -119,6 +119,8 @@ import {
   RadioOutline,
   FlashOutline,
   AppsOutline,
+  BuildOutline,
+  GitNetworkOutline,
   TimerOutline,
   LayersOutline,
   DesktopOutline,
@@ -140,6 +142,9 @@ import { ConnectionStatus } from "../gateway/types";
 import { gatewayEventBus } from "../gateway/event-bus";
 import { useDebugStore } from "../stores/debug";
 import { useInstancesStore } from "../stores/instances";
+import { useAgentsStore } from "../stores/agents";
+import { useLogsStore } from "../stores/logs";
+import type { LogEntry } from "../stores/logs";
 import { useTheme } from "../composables/useTheme";
 import type { ThemeMode } from "../composables/useTheme";
 import type { GatewayEventFrame } from "../gateway/types";
@@ -193,6 +198,16 @@ const menuOptions = computed<MenuOption[]>(() => [
     label: t("nav.plugins"),
     key: "plugins",
     icon: renderIcon(AppsOutline),
+  },
+  {
+    label: t("nav.tools"),
+    key: "tools",
+    icon: renderIcon(BuildOutline),
+  },
+  {
+    label: t("nav.mcp"),
+    key: "mcp",
+    icon: renderIcon(GitNetworkOutline),
   },
   {
     label: t("nav.cron"),
@@ -302,15 +317,21 @@ function restartWizard() {
 
 const debugStore = useDebugStore();
 const instancesStore = useInstancesStore();
+const agentsStore = useAgentsStore();
+const logsStore = useLogsStore();
 
 // Wildcard listener that pipes all gateway events to the debug store
 function onWildcardEvent(frame: unknown) {
   const f = frame as GatewayEventFrame;
   if (f && f.event) {
     debugStore.recordEvent({ event: f.event, payload: f.payload });
-    // Also forward presence events to instances store
+    // Forward presence events to instances store
     if (f.event === "presence") {
       instancesStore.handlePresenceEvent(f.payload);
+    }
+    // Forward log events to logs store for real-time streaming
+    if (f.event === "log" && f.payload) {
+      logsStore.appendEntry(f.payload as LogEntry);
     }
   }
 }
@@ -358,8 +379,21 @@ onMounted(async () => {
 
     conn.connect(conn.url, conn.token || undefined, conn.password || undefined);
   }
+
+  // Load main agent identity once connected
+  if (conn.isConnected) {
+    agentsStore.fetchMainAgentIdentity();
+  }
+
   // Listen to all gateway events
   gatewayEventBus.on("*", onWildcardEvent);
+});
+
+// Reload agent identity when connection is established (e.g. after auto-connect)
+watch(() => conn.isConnected, (connected) => {
+  if (connected) {
+    agentsStore.fetchMainAgentIdentity();
+  }
 });
 
 onUnmounted(() => {
@@ -388,14 +422,18 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.logo-text {
-  color: var(--n-text-color, inherit);
+.logo-emoji {
+  font-size: 20px;
+  flex-shrink: 0;
 }
 
-.logo-icon {
+.sidebar-logo.collapsed .logo-emoji {
+  font-size: 18px;
+}
+
+.logo-text {
   color: var(--n-text-color, inherit);
-  font-size: 11px;
-  font-weight: 800;
+  margin-left: 8px;
 }
 
 .status-bar {

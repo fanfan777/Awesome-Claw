@@ -7,6 +7,7 @@ export interface ModelInfo {
   name?: string;
   provider?: string;
   contextLength?: number;
+  inputTypes?: string[];
 }
 
 export interface ProviderConfig {
@@ -29,6 +30,7 @@ export const useModelsStore = defineStore("models", () => {
   const models = ref<ModelInfo[]>([]);
   const providers = ref<ProviderConfig[]>([]);
   const primaryModel = ref<string>("");
+  const fallbacks = ref<string[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -81,7 +83,8 @@ export const useModelsStore = defineStore("models", () => {
           type: (p.api as string) ?? id,
           name: id,
           baseUrl: p.baseUrl as string | undefined,
-          apiKey: p.apiKey ? "••••••" : undefined,
+          // Provider exists in config = was configured (gateway may hide sensitive fields)
+          apiKey: "••••••",
           enabled: true,
         }));
       } else if (authProfiles && typeof authProfiles === "object") {
@@ -90,17 +93,22 @@ export const useModelsStore = defineStore("models", () => {
           id: profileId,
           type: (p.provider as string) ?? profileId.split(":")[0] ?? profileId,
           name: (p.provider as string) ?? profileId,
+          // Profile exists = was configured
+          apiKey: "••••••",
           enabled: true,
         }));
       } else {
         providers.value = [];
       }
 
-      // Read primary model from agents.defaults.model.primary
+      // Read primary model and fallbacks from agents.defaults.model
       const agentsSection = cfg.agents as Record<string, unknown> | undefined;
       const defaults = agentsSection?.defaults as Record<string, unknown> | undefined;
       const modelDefaults = defaults?.model as Record<string, unknown> | undefined;
       primaryModel.value = (modelDefaults?.primary as string) ?? "";
+      fallbacks.value = Array.isArray(modelDefaults?.fallbacks)
+        ? (modelDefaults.fallbacks as string[])
+        : [];
     } catch (err) {
       error.value = err instanceof Error ? err.message : "Failed to fetch providers";
     }
@@ -124,6 +132,8 @@ export const useModelsStore = defineStore("models", () => {
         providerEntry.api = "anthropic-messages";
       } else if (provider.type === "google") {
         providerEntry.api = "google-generative-ai";
+      } else if (provider.type === "bedrock") {
+        providerEntry.api = "bedrock";
       }
       // else defaults to openai-completions (gateway auto-detects)
 
@@ -220,6 +230,37 @@ export const useModelsStore = defineStore("models", () => {
     }
   }
 
+  async function setFallbacks(newFallbacks: string[]): Promise<boolean> {
+    error.value = null;
+    try {
+      const conn = useConnectionStore();
+      if (conn.isConnected && conn.client) {
+        await fetchConfigSnapshot();
+        const patch = {
+          agents: {
+            defaults: {
+              model: {
+                fallbacks: newFallbacks,
+              },
+            },
+          },
+        };
+        await conn.client.request("config.patch", {
+          raw: JSON.stringify(patch),
+          baseHash: configHash.value,
+        });
+        configHash.value = null;
+      } else {
+        throw new Error("Gateway not connected");
+      }
+      fallbacks.value = newFallbacks;
+      return true;
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : "Failed to set fallbacks";
+      return false;
+    }
+  }
+
   /** Load primary model from config file (works without gateway) */
   async function loadPrimaryModelFromFile() {
     const api = (window as Record<string, unknown>).electronAPI as
@@ -234,6 +275,7 @@ export const useModelsStore = defineStore("models", () => {
     models,
     providers,
     primaryModel,
+    fallbacks,
     loading,
     error,
     configHash,
@@ -244,5 +286,6 @@ export const useModelsStore = defineStore("models", () => {
     addProvider,
     removeProvider,
     setPrimaryModel,
+    setFallbacks,
   };
 });

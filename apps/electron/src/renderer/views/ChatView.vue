@@ -110,12 +110,14 @@ async function handleNewSession() {
 async function handleSend(
   message: string,
   images: Array<{ data: string; mimeType: string }>,
+  files: Array<{ data: string; name: string; mimeType: string }> = [],
 ) {
   const opts: SendOptions = {}
   if (selectedAgent.value) opts.agent = selectedAgent.value
   if (selectedModel.value) opts.model = selectedModel.value
   if (thinkingLevel.value !== 'off') opts.thinking = thinkingLevel.value
   if (images.length > 0) opts.images = images
+  if (files.length > 0) opts.files = files
 
   await chatStore.sendMessage(
     message,
@@ -302,7 +304,10 @@ watch(() => chatStore.messages.length, () => {
     </NLayoutSider>
 
     <!-- Main chat area -->
-    <NLayoutContent style="display: flex; flex-direction: column; height: 100%;">
+    <NLayoutContent
+      content-style="display: flex; flex-direction: column; height: 100%; overflow: hidden;"
+      style="height: 100%;"
+    >
       <!-- Top bar -->
       <div v-if="chatStore.currentSessionKey || focusMode" class="chat-topbar">
         <NSpace align="center" :size="8">
@@ -389,6 +394,8 @@ watch(() => chatStore.messages.length, () => {
             v-for="(msg, i) in chatStore.messages"
             :key="msg.id ?? i"
             :message="msg"
+            :agent-name="agentsStore.mainAgentDisplayName"
+            :agent-emoji="agentsStore.mainAgentEmoji"
           />
           <div ref="messagesEndRef" style="height: 1px;" />
         </NScrollbar>

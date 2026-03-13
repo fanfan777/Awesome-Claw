@@ -76,6 +76,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import("../views/PluginsView.vue"),
       },
       {
+        path: "tools",
+        name: "tools",
+        component: () => import("../views/ToolsView.vue"),
+      },
+      {
+        path: "mcp",
+        name: "mcp",
+        component: () => import("../views/McpView.vue"),
+      },
+      {
         path: "cron",
         name: "cron",
         component: () => import("../views/CronView.vue"),

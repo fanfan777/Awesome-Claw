@@ -19,6 +19,8 @@ const { t } = useI18n()
 
 const props = defineProps<{
   message: ChatMessageType
+  agentName?: string
+  agentEmoji?: string
 }>()
 
 const isUser = computed(() => props.message.role === 'user')
@@ -62,6 +64,7 @@ const roleTagType = computed(() => {
 })
 
 const roleLabel = computed(() => {
+  if (isAssistant.value && props.agentName) return props.agentName
   const roleMap: Record<string, string> = {
     user: t('chat.roleUser'),
     assistant: t('chat.roleAssistant'),
@@ -98,7 +101,9 @@ function toggleThinking() {
     <!-- Header -->
     <div class="chat-message__header">
       <NSpace align="center" :size="6">
+        <span v-if="isAssistant && agentEmoji" class="chat-message__emoji-avatar">{{ agentEmoji }}</span>
         <component
+          v-else
           :is="isUser ? PersonCircleOutline : isAssistant ? ChatbubbleEllipsesOutline : isTool ? BuildOutline : SettingsOutline"
           class="chat-message__avatar"
         />
@@ -224,6 +229,10 @@ function toggleThinking() {
   width: 18px;
   height: 18px;
   color: var(--n-text-color-3);
+}
+.chat-message__emoji-avatar {
+  font-size: 16px;
+  line-height: 18px;
 }
 .chat-message__copy {
   opacity: 0;

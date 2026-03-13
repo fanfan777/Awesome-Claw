@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NSpace, NButton, NInput, NSelect, NSpin, NEmpty, NScrollbar, NText,
@@ -53,10 +53,27 @@ function levelTagType(level: string): 'success' | 'info' | 'warning' | 'error' |
   }
 }
 
+// Periodic polling interval (10s) as fallback for real-time log events
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(async () => {
   if (!conn.isConnected) return
   await store.fetchLogs()
   scrollToBottom()
+
+  // Start periodic polling
+  pollTimer = setInterval(async () => {
+    if (conn.isConnected && !store.loading) {
+      await store.fetchLogs()
+    }
+  }, 10_000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
 })
 </script>
 

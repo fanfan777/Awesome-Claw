@@ -10,7 +10,14 @@ import type { RuntimeEnv } from "../runtime.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
 import type { SecretInputMode } from "./onboard-types.js";
 
-export type SearchProvider = "brave" | "gemini" | "grok" | "kimi" | "perplexity";
+export type SearchProvider =
+  | "brave"
+  | "gemini"
+  | "grok"
+  | "kimi"
+  | "perplexity"
+  | "serper"
+  | "tavily";
 
 type SearchProviderEntry = {
   value: SearchProvider;
@@ -62,6 +69,22 @@ export const SEARCH_PROVIDER_OPTIONS: readonly SearchProviderEntry[] = [
     placeholder: "pplx-...",
     signupUrl: "https://www.perplexity.ai/settings/api",
   },
+  {
+    value: "serper",
+    label: "Serper (Google Search)",
+    hint: "Google Search results via Serper API",
+    envKeys: ["SERPER_API_KEY"],
+    placeholder: "",
+    signupUrl: "https://serper.dev/",
+  },
+  {
+    value: "tavily",
+    label: "Tavily Search",
+    hint: "AI-optimized search results",
+    envKeys: ["TAVILY_API_KEY"],
+    placeholder: "tvly-...",
+    signupUrl: "https://tavily.com/",
+  },
 ] as const;
 
 export function hasKeyInEnv(entry: SearchProviderEntry): boolean {
@@ -81,6 +104,10 @@ function rawKeyValue(config: OpenClawConfig, provider: SearchProvider): unknown 
       return search?.kimi?.apiKey;
     case "perplexity":
       return search?.perplexity?.apiKey;
+    case "serper":
+      return search?.serper?.apiKey;
+    case "tavily":
+      return search?.tavily?.apiKey;
   }
 }
 

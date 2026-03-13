@@ -127,6 +127,7 @@ export function detectFieldType(
 export const useConfigStore = defineStore("config", () => {
   const config = ref<Record<string, ConfigValue>>({});
   const originalConfig = ref<Record<string, ConfigValue>>({});
+  const baseHash = ref<string | undefined>(undefined);
   const schema = ref<ConfigSchema | null>(null);
   const schemaLoading = ref(false);
   const loading = ref(false);
@@ -200,8 +201,10 @@ export const useConfigStore = defineStore("config", () => {
     try {
       const result = await getClient().request<{
         config: Record<string, ConfigValue>;
+        hash?: string;
       }>("config.get");
       config.value = result.config ?? {};
+      baseHash.value = result.hash;
       originalConfig.value = JSON.parse(JSON.stringify(config.value));
       dirtyFields.value.clear();
     } catch (err) {
@@ -246,8 +249,15 @@ export const useConfigStore = defineStore("config", () => {
   ): Promise<boolean> {
     error.value = null;
     try {
-      // Schema: { raw: string, baseHash?, sessionKey?, note?, restartDelayMs? }
-      await getClient().request("config.patch", { raw: buildPatchRaw(path, value) });
+      const params: Record<string, unknown> = { raw: buildPatchRaw(path, value) };
+      if (baseHash.value) {
+        params.baseHash = baseHash.value;
+      }
+      const result = await getClient().request<{ baseHash?: string }>("config.patch", params);
+      // Update baseHash from response for subsequent patches
+      if (result?.baseHash) {
+        baseHash.value = result.baseHash;
+      }
       lastSaved.value = Date.now();
       setValueByPath(path, value);
       originalConfig.value = JSON.parse(JSON.stringify(config.value));
@@ -266,8 +276,10 @@ export const useConfigStore = defineStore("config", () => {
     error.value = null;
     saving.value = true;
     try {
-      // Schema: { raw: string, baseHash? }
-      await getClient().request("config.set", { raw: JSON.stringify(newConfig) });
+      const params: Record<string, unknown> = { raw: JSON.stringify(newConfig) };
+      if (baseHash.value) { params.baseHash = baseHash.value; }
+      const result = await getClient().request<{ baseHash?: string }>("config.set", params);
+      if (result?.baseHash) { baseHash.value = result.baseHash; }
       config.value = newConfig;
       originalConfig.value = JSON.parse(JSON.stringify(newConfig));
       lastSaved.value = Date.now();

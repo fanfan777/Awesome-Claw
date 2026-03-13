@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="wizard-header">
         <h1 class="wizard-title">OpenClaw</h1>
-        <a class="exit-link" @click.prevent="handleExit">{{ t('wizard.exitWizard') }}</a>
+        <!-- exit link removed per user request -->
       </div>
 
       <!-- Page content -->

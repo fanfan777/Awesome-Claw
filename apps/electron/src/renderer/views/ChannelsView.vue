@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NGrid, NGi, NCard, NButton, NSpace, NSpin, NEmpty, NText, NPopconfirm,
   NDrawer, NDrawerContent, NForm, NFormItem, NInput, NSelect, NTag,
-  NModal, NDynamicTags, NTooltip
+  NModal, NDynamicTags, NTooltip, NAlert
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { useChannelsStore, type ChannelStatus, type ChannelConfig } from '@renderer/stores/channels'
@@ -31,6 +31,114 @@ const configForm = ref<ChannelConfig>({
 /* Add channel form */
 const newChannelType = ref('')
 const newChannelConfig = ref<ChannelConfig>({ token: '' })
+
+/** Per-channel config field definitions */
+interface ChannelField {
+  key: string
+  label: string
+  labelZh: string
+  placeholder?: string
+  sensitive?: boolean
+  required?: boolean
+}
+
+const channelFields: Record<string, ChannelField[]> = {
+  feishu: [
+    { key: 'appId', label: 'App ID', labelZh: 'App ID', placeholder: 'cli_xxxx', required: true },
+    { key: 'appSecret', label: 'App Secret', labelZh: 'App Secret', placeholder: '', sensitive: true, required: true },
+    { key: 'encryptKey', label: 'Encrypt Key', labelZh: '加密密钥', sensitive: true },
+    { key: 'verificationToken', label: 'Verification Token', labelZh: '验证令牌', sensitive: true },
+  ],
+  telegram: [
+    { key: 'token', label: 'Bot Token', labelZh: 'Bot Token', placeholder: '123456:ABC-DEF...', sensitive: true, required: true },
+  ],
+  discord: [
+    { key: 'token', label: 'Bot Token', labelZh: 'Bot Token', placeholder: '', sensitive: true, required: true },
+  ],
+  slack: [
+    { key: 'token', label: 'Bot Token', labelZh: 'Bot Token', placeholder: 'xoxb-...', sensitive: true, required: true },
+    { key: 'appToken', label: 'App Token', labelZh: 'App Token', placeholder: 'xapp-...', sensitive: true },
+    { key: 'signingSecret', label: 'Signing Secret', labelZh: '签名密钥', sensitive: true },
+  ],
+  dingtalk: [
+    { key: 'appKey', label: 'App Key', labelZh: 'App Key', required: true },
+    { key: 'appSecret', label: 'App Secret', labelZh: 'App Secret', sensitive: true, required: true },
+  ],
+  msteams: [
+    { key: 'appId', label: 'App ID', labelZh: '应用 ID', required: true },
+    { key: 'appPassword', label: 'App Password', labelZh: '应用密码', sensitive: true, required: true },
+  ],
+  line: [
+    { key: 'channelAccessToken', label: 'Channel Access Token', labelZh: '渠道访问令牌', sensitive: true, required: true },
+    { key: 'channelSecret', label: 'Channel Secret', labelZh: '渠道密钥', sensitive: true, required: true },
+  ],
+  matrix: [
+    { key: 'homeserverUrl', label: 'Homeserver URL', labelZh: '服务器地址', placeholder: 'https://matrix.org', required: true },
+    { key: 'accessToken', label: 'Access Token', labelZh: '访问令牌', sensitive: true, required: true },
+  ],
+}
+
+/** Default: single token field for channels without specific definitions */
+const defaultFields: ChannelField[] = [
+  { key: 'token', label: 'Token', labelZh: 'Token', sensitive: true, required: true },
+]
+
+function getFieldsForChannel(channelType: string): ChannelField[] {
+  return channelFields[channelType] ?? defaultFields
+}
+
+function getFieldLabel(field: ChannelField): string {
+  const isZh = t('common.save') === '保存'
+  return isZh ? field.labelZh : field.label
+}
+
+/** Per-channel setup hints shown in add/configure modals */
+const channelSetupHints: Record<string, { zh: string; en: string }> = {
+  feishu: {
+    zh: '配置步骤：\n1. 打开飞书开发者后台 (open.feishu.cn) → 创建企业自建应用\n2. 复制 App ID 和 App Secret\n3. 权限管理 → 添加以下权限并发布版本：\n   • im:message（接收和发送消息）\n   • im:message:send_as_bot（以机器人身份发消息）\n   • contact:user.employee_id:readonly（解析用户 ID，发消息必需）\n4. 应用发布 → 版本管理与发布 → 创建版本并发布\n5. 可用范围 → 设置可用范围为「全部员工」或指定用户/部门\n6. 事件与回调 → 订阅方式选择「使用长连接接收事件」\n7. 事件订阅 → 添加 im.message.receive_v1（接收消息事件）\n\n测试发送：收件人填飞书用户 open_id（ou_xxxx 格式）',
+    en: 'Setup steps:\n1. Open Feishu Developer Console (open.feishu.cn) → Create custom app\n2. Copy App ID and App Secret\n3. Permissions → Add and publish:\n   • im:message (receive & send messages)\n   • im:message:send_as_bot (send as bot)\n   • contact:user.employee_id:readonly (resolve user ID, required for sending)\n4. App Release → Create version and publish\n5. Availability → Set to "All employees" or specific users/departments\n6. Events & Callbacks → Choose "Receive via persistent connection (WebSocket)"\n7. Event subscriptions → Add im.message.receive_v1\n\nTest send: use Feishu open_id (ou_xxxx format) as recipient',
+  },
+  telegram: {
+    zh: '配置步骤：\n1. 在 Telegram 中找到 @BotFather\n2. 发送 /newbot 创建机器人\n3. 复制 Bot Token（格式：123456:ABC-DEF...）',
+    en: 'Setup steps:\n1. Find @BotFather on Telegram\n2. Send /newbot to create a bot\n3. Copy the Bot Token (format: 123456:ABC-DEF...)',
+  },
+  discord: {
+    zh: '配置步骤：\n1. 打开 Discord Developer Portal (discord.com/developers)\n2. 创建 Application → Bot → 复制 Token\n3. 开启 Privileged Gateway Intents（Message Content Intent）\n4. 用 OAuth2 URL 将 Bot 邀请到服务器',
+    en: 'Setup steps:\n1. Open Discord Developer Portal (discord.com/developers)\n2. Create Application → Bot → Copy Token\n3. Enable Privileged Gateway Intents (Message Content Intent)\n4. Invite bot to server via OAuth2 URL',
+  },
+  slack: {
+    zh: '配置步骤：\n1. 打开 api.slack.com/apps → 创建 App\n2. OAuth & Permissions → 添加 Bot Token Scopes\n3. 安装到工作区 → 复制 Bot Token (xoxb-...)\n4. Socket Mode → 启用并获取 App Token (xapp-...)',
+    en: 'Setup steps:\n1. Open api.slack.com/apps → Create App\n2. OAuth & Permissions → Add Bot Token Scopes\n3. Install to workspace → Copy Bot Token (xoxb-...)\n4. Socket Mode → Enable and get App Token (xapp-...)',
+  },
+  dingtalk: {
+    zh: '配置步骤：\n1. 打开钉钉开放平台 (open.dingtalk.com)\n2. 创建企业内部应用 → 复制 App Key 和 App Secret\n3. 消息推送 → 配置回调地址或 Stream 模式',
+    en: 'Setup steps:\n1. Open DingTalk Developer Console (open.dingtalk.com)\n2. Create internal app → Copy App Key and App Secret\n3. Message push → Configure callback URL or Stream mode',
+  },
+}
+
+function getSetupHint(channelType: string): string {
+  const hint = channelSetupHints[channelType]
+  if (!hint) return ''
+  const isZh = t('common.save') === '保存'
+  return isZh ? hint.zh : hint.en
+}
+
+/** Per-channel recipient placeholder for test send */
+const recipientPlaceholders: Record<string, { zh: string; en: string }> = {
+  feishu: { zh: '飞书用户 open_id，如 ou_xxxx（非用户名）', en: 'Feishu open_id, e.g. ou_xxxx (not username)' },
+  telegram: { zh: 'Telegram chat ID 或 @username', en: 'Telegram chat ID or @username' },
+  discord: { zh: 'Discord 用户 ID 或频道 ID', en: 'Discord user ID or channel ID' },
+  slack: { zh: 'Slack 用户 ID 或频道名称', en: 'Slack user ID or channel name' },
+  dingtalk: { zh: '钉钉用户 ID', en: 'DingTalk user ID' },
+}
+
+function getRecipientPlaceholder(): string {
+  const ch = selectedChannel.value?.channel ?? ''
+  const hint = recipientPlaceholders[ch]
+  if (!hint) return t('channels.recipientPlaceholder')
+  const isZh = t('common.save') === '保存'
+  return isZh ? hint.zh : hint.en
+}
 
 /* Test send form */
 const testTo = ref('')
@@ -115,7 +223,12 @@ function openDetail(ch: ChannelStatus) {
 async function saveConfig() {
   if (!selectedChannel.value) return
   const config: ChannelConfig = {}
-  if (configForm.value.token) config.token = configForm.value.token
+  // Collect all channel-specific fields that have values
+  const fields = getFieldsForChannel(selectedChannel.value.channel)
+  for (const field of fields) {
+    const val = (configForm.value as Record<string, unknown>)[field.key]
+    if (val) config[field.key] = val
+  }
   if (configForm.value.dmPolicy) config.dmPolicy = configForm.value.dmPolicy
   if (configForm.value.allowFrom) config.allowFrom = configForm.value.allowFrom
   await store.configureChannel(selectedChannel.value.channel, config)
@@ -137,17 +250,26 @@ async function handleTestSend() {
 
 async function handleAddChannel() {
   if (!newChannelType.value) return
-  await store.addChannel(newChannelType.value, newChannelConfig.value)
-  addModalOpen.value = false
-  newChannelType.value = ''
-  newChannelConfig.value = { token: '' }
+  console.log('[channels-view] Adding channel:', newChannelType.value, newChannelConfig.value)
+  const ok = await store.addChannel(newChannelType.value, newChannelConfig.value)
+  if (ok) {
+    addModalOpen.value = false
+    newChannelType.value = ''
+    newChannelConfig.value = {}
+  }
+  // If failed, keep modal open so user sees the error
 }
 
 function openAddModal() {
   newChannelType.value = ''
-  newChannelConfig.value = { token: '' }
+  newChannelConfig.value = {}
   addModalOpen.value = true
 }
+
+// Reset config form when channel type changes
+watch(newChannelType, () => {
+  newChannelConfig.value = {}
+})
 
 function formatTime(iso?: string): string {
   if (!iso) return ''
@@ -155,6 +277,10 @@ function formatTime(iso?: string): string {
 }
 
 onMounted(() => { if (conn.isConnected) store.fetchStatus() })
+
+watch(() => conn.isConnected, (connected) => {
+  if (connected) store.fetchStatus()
+})
 </script>
 
 <template>
@@ -277,12 +403,21 @@ onMounted(() => { if (conn.isConnected) store.fetchStatus() })
             <NText>@{{ selectedChannel.username }}</NText>
           </NFormItem>
 
-          <NFormItem :label="t('channels.token')">
+          <NAlert v-if="getSetupHint(selectedChannel.channel)" type="info" style="margin-bottom:16px;white-space:pre-line;">
+            {{ getSetupHint(selectedChannel.channel) }}
+          </NAlert>
+
+          <NFormItem
+            v-for="field in getFieldsForChannel(selectedChannel.channel)"
+            :key="field.key"
+            :label="getFieldLabel(field)"
+          >
             <NInput
-              v-model:value="configForm.token"
-              type="password"
-              show-password-on="click"
+              :value="(configForm as Record<string, unknown>)[field.key] as string ?? ''"
+              :type="field.sensitive ? 'password' : 'text'"
+              :show-password-on="field.sensitive ? 'click' : undefined"
               :placeholder="t('channels.enterNewToken')"
+              @update:value="(v: string) => { (configForm as Record<string, unknown>)[field.key] = v }"
             />
           </NFormItem>
 
@@ -343,14 +478,24 @@ onMounted(() => { if (conn.isConnected) store.fetchStatus() })
             :placeholder="t('channels.selectType')"
           />
         </NFormItem>
-        <NFormItem :label="t('channels.token')" v-if="newChannelType">
-          <NInput
-            v-model:value="newChannelConfig.token"
-            type="password"
-            show-password-on="click"
-            :placeholder="t('channels.botToken')"
-          />
-        </NFormItem>
+        <template v-if="newChannelType">
+          <NAlert v-if="getSetupHint(newChannelType)" type="info" style="margin-bottom:16px;white-space:pre-line;">
+            {{ getSetupHint(newChannelType) }}
+          </NAlert>
+          <NFormItem
+            v-for="field in getFieldsForChannel(newChannelType)"
+            :key="field.key"
+            :label="getFieldLabel(field) + (field.required ? ' *' : '')"
+          >
+            <NInput
+              :value="(newChannelConfig as Record<string, unknown>)[field.key] as string ?? ''"
+              :type="field.sensitive ? 'password' : 'text'"
+              :show-password-on="field.sensitive ? 'click' : undefined"
+              :placeholder="field.placeholder ?? ''"
+              @update:value="(v: string) => { (newChannelConfig as Record<string, unknown>)[field.key] = v }"
+            />
+          </NFormItem>
+        </template>
       </NForm>
       <template #footer>
         <NSpace justify="end">
@@ -371,7 +516,7 @@ onMounted(() => { if (conn.isConnected) store.fetchStatus() })
     <NModal v-model:show="testSendModalOpen" preset="card" :title="t('channels.testSendTitle')" style="width:480px;">
       <NForm label-placement="top">
         <NFormItem :label="t('channels.toRecipient')">
-          <NInput v-model:value="testTo" :placeholder="t('channels.recipientPlaceholder')" />
+          <NInput v-model:value="testTo" :placeholder="getRecipientPlaceholder()" />
         </NFormItem>
         <NFormItem :label="t('channels.message')">
           <NInput v-model:value="testMessage" type="textarea" :autosize="{ minRows: 2 }" />

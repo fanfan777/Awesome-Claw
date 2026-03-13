@@ -52,6 +52,35 @@ watch(() => store.language, (lang) => {
 const pendingApiKey = ref<string | null>(null)
 const showAllProviders = ref(false)
 const selectedProvider = ref<string | null>(null)
+const existingProvidersDetected = ref(false)
+const existingChannelsDetected = ref<string[]>([])
+
+// Check if providers/channels already exist in config
+async function checkExistingConfig() {
+  try {
+    const client = connStore.client
+    if (!client) return
+    const result = await client.request<{ config: Record<string, unknown> }>('config.get')
+    const cfg = result.config ?? {}
+    const modelsSection = cfg.models as Record<string, unknown> | undefined
+    const providersObj = modelsSection?.providers as Record<string, unknown> | undefined
+    const authSection = cfg.auth as Record<string, unknown> | undefined
+    const authProfiles = authSection?.profiles as Record<string, unknown> | undefined
+    existingProvidersDetected.value = !!(
+      (providersObj && Object.keys(providersObj).length > 0) ||
+      (authProfiles && Object.keys(authProfiles).length > 0)
+    )
+    const channelsObj = cfg.channels as Record<string, unknown> | undefined
+    existingChannelsDetected.value = channelsObj
+      ? Object.keys(channelsObj).filter(k => channelsObj[k] && typeof channelsObj[k] === 'object')
+      : []
+  } catch {
+    existingProvidersDetected.value = false
+    existingChannelsDetected.value = []
+  }
+}
+
+// Note: watches for isApiKeyStep and showChannelFork are below their definitions
 const customBaseUrl = ref('')
 
 // ── Feishu combined: server sends Secret first, then App ID ──
@@ -258,6 +287,101 @@ const hasPassedModelSetup = computed(() => {
 // Channel fork: offer "直接进入" vs "连接渠道" after model setup
 const showChannelFork = ref(false)
 
+// Client-side channel step: inserted when server wizard skips channel config
+const showClientChannelStep = ref(false)
+const clientChannelType = ref('')
+const clientChannelConfig = ref<Record<string, string>>({})
+const clientChannelSaving = ref(false)
+const clientChannelError = ref<string | null>(null)
+
+// Intercept wizard completion — insert channel step if fork was never shown
+watch(() => store.phase, (phase) => {
+  if (phase === 'complete' && !showChannelFork.value && !showClientChannelStep.value) {
+    checkExistingConfig()
+    showClientChannelStep.value = true
+  }
+})
+
+const wizardChannelOptions: SelectOption[] = [
+  { label: 'Telegram', value: 'telegram' },
+  { label: 'Discord', value: 'discord' },
+  { label: 'Feishu (飞书)', value: 'feishu' },
+  { label: 'Slack', value: 'slack' },
+  { label: 'WhatsApp', value: 'whatsapp' },
+  { label: 'DingTalk (钉钉)', value: 'dingtalk' },
+  { label: 'MS Teams', value: 'msteams' },
+  { label: 'LINE', value: 'line' },
+  { label: 'Matrix', value: 'matrix' },
+  { label: 'Signal', value: 'signal' },
+]
+
+const wizardChannelFields: Record<string, Array<{ key: string; label: string; sensitive?: boolean }>> = {
+  feishu: [
+    { key: 'appId', label: 'App ID' },
+    { key: 'appSecret', label: 'App Secret', sensitive: true },
+  ],
+  telegram: [{ key: 'token', label: 'Bot Token', sensitive: true }],
+  discord: [{ key: 'token', label: 'Bot Token', sensitive: true }],
+  slack: [
+    { key: 'token', label: 'Bot Token', sensitive: true },
+    { key: 'appToken', label: 'App Token', sensitive: true },
+  ],
+  dingtalk: [
+    { key: 'appKey', label: 'App Key' },
+    { key: 'appSecret', label: 'App Secret', sensitive: true },
+  ],
+  msteams: [
+    { key: 'appId', label: 'App ID' },
+    { key: 'appPassword', label: 'App Password', sensitive: true },
+  ],
+  line: [{ key: 'channelAccessToken', label: 'Access Token', sensitive: true }],
+  matrix: [
+    { key: 'homeserverUrl', label: 'Homeserver URL' },
+    { key: 'accessToken', label: 'Access Token', sensitive: true },
+  ],
+}
+
+const defaultChannelFields = [{ key: 'token', label: 'Token', sensitive: true }]
+
+function getWizardChannelFields(type: string) {
+  return wizardChannelFields[type] ?? defaultChannelFields
+}
+
+watch(clientChannelType, () => {
+  clientChannelConfig.value = {}
+})
+
+function skipClientChannelStep() {
+  showClientChannelStep.value = false
+}
+
+async function saveClientChannel() {
+  if (!clientChannelType.value) return
+  clientChannelSaving.value = true
+  clientChannelError.value = null
+  try {
+    const client = connStore.client
+    if (!client) throw new Error('Not connected')
+    // Fetch config hash required by gateway
+    const hashResult = await client.request<{ hash?: string }>('config.get')
+    const baseHash = hashResult.hash ?? undefined
+    const patch = { channels: { [clientChannelType.value]: { enabled: true, ...clientChannelConfig.value } } }
+    await client.request('config.patch', {
+      raw: JSON.stringify(patch),
+      baseHash,
+      restartDelayMs: 2000,
+    })
+    // Refresh detection
+    await checkExistingConfig()
+    clientChannelType.value = ''
+    clientChannelConfig.value = {}
+  } catch (err) {
+    clientChannelError.value = err instanceof Error ? err.message : 'Failed to save'
+  } finally {
+    clientChannelSaving.value = false
+  }
+}
+
 // Channel display enhancement — show Chinese-friendly names and descriptions
 const CHANNEL_INFO: Record<string, { icon: string; zh: string; desc: string }> = {
   telegram: { icon: '✈️', zh: 'Telegram 电报', desc: '全球流行的即时通讯' },
@@ -296,6 +420,14 @@ const channelEnhancedOptions = computed(() => {
     }
     return opt
   })
+})
+
+// Trigger config check when entering API key step or channel fork
+watch(isApiKeyStep, (val) => {
+  if (val) checkExistingConfig()
+})
+watch(showChannelFork, (val) => {
+  if (val) checkExistingConfig()
 })
 
 // ── Phase: Welcome ──
@@ -490,9 +622,22 @@ async function handleEnterApp() {
 // ── Skip wizard ──
 
 async function handleSkipWizard() {
-  await store.cancelWizard()
+  // Mark completed FIRST to ensure navigation guard allows /overview
   store.finishWizard()
-  router.push('/overview')
+  // Cancel server wizard in background (don't await — user wants out NOW)
+  try {
+    store.cancelWizard().catch(() => {})
+  } catch {
+    // ignore
+  }
+  // Force navigate — replace to prevent back button returning to wizard
+  try {
+    await router.replace('/overview')
+  } catch {
+    // Fallback: hard reload
+    window.location.hash = '#/overview'
+    window.location.reload()
+  }
 }
 </script>
 
@@ -711,6 +856,13 @@ async function handleSkipWizard() {
               {{ t('wizard.forkDesc') }}
             </NText>
 
+            <!-- Existing channels detected -->
+            <NAlert v-if="existingChannelsDetected.length > 0" type="info" style="margin-bottom: 16px;">
+              {{ locale.startsWith('zh')
+                ? `已有 ${existingChannelsDetected.length} 个连接APP配置：${existingChannelsDetected.join('、')}。如需添加/更新请选择下方选项。`
+                : `${existingChannelsDetected.length} app(s) already configured: ${existingChannelsDetected.join(', ')}. Choose below to add/update.` }}
+            </NAlert>
+
             <div class="option-cards">
               <div class="option-card fork-card" @click="handleSetupChannels">
                 <div class="option-card-body">
@@ -892,6 +1044,11 @@ async function handleSkipWizard() {
             <!-- ── TEXT: input + inline confirm ── -->
             <template v-if="store.stepData.type === 'text'">
               <NSpace vertical :size="12">
+                <!-- Existing provider detected notice -->
+                <NAlert v-if="isApiKeyStep && existingProvidersDetected" type="info" style="margin-bottom: 4px;">
+                  {{ locale.startsWith('zh') ? 'API Key 已存在配置，如需更新请在下方输入新 Key' : 'API Key already configured. Enter a new key below to update.' }}
+                </NAlert>
+
                 <NInputNumber
                   v-if="isNumericText"
                   :value="(store.currentAnswer as number) ?? undefined"
@@ -1036,6 +1193,60 @@ async function handleSkipWizard() {
                 {{ locale.startsWith('zh') ? '跳过设置，稍后配置' : 'Skip setup, configure later' }}
               </NButton>
             </div>
+          </div>
+        </NCard>
+
+        <!-- ==================== CLIENT CHANNEL STEP ==================== -->
+        <NCard v-else-if="store.phase === 'complete' && showClientChannelStep" key="client-channel" class="wizard-card" :bordered="false">
+          <div class="step-content">
+            <h3 class="step-title">{{ locale.startsWith('zh') ? '配置连接APP' : 'Configure App Connections' }}</h3>
+            <NText depth="2" style="display: block; margin-bottom: 16px; line-height: 1.6;">
+              {{ locale.startsWith('zh') ? '连接外部聊天应用，让 AI 可以在这些平台上响应消息。' : 'Connect external chat apps so AI can respond on these platforms.' }}
+            </NText>
+
+            <!-- Existing channels -->
+            <NAlert v-if="existingChannelsDetected.length > 0" type="info" style="margin-bottom: 16px;">
+              {{ locale.startsWith('zh')
+                ? `已有 ${existingChannelsDetected.length} 个连接APP配置：${existingChannelsDetected.join('、')}`
+                : `${existingChannelsDetected.length} app(s) configured: ${existingChannelsDetected.join(', ')}` }}
+            </NAlert>
+
+            <NAlert v-if="clientChannelError" type="error" style="margin-bottom: 12px;" closable @close="clientChannelError = null">
+              {{ clientChannelError }}
+            </NAlert>
+
+            <!-- Channel type selector -->
+            <NSpace vertical :size="12">
+              <NSelect
+                v-model:value="clientChannelType"
+                :options="wizardChannelOptions"
+                :placeholder="locale.startsWith('zh') ? '选择要连接的应用...' : 'Select an app to connect...'"
+                clearable
+              />
+
+              <!-- Per-channel fields -->
+              <template v-if="clientChannelType">
+                <NSpace vertical :size="8">
+                  <div v-for="field in getWizardChannelFields(clientChannelType)" :key="field.key">
+                    <NText depth="2" style="font-size: 13px; display: block; margin-bottom: 4px;">{{ field.label }}</NText>
+                    <NInput
+                      :value="clientChannelConfig[field.key] ?? ''"
+                      :type="field.sensitive ? 'password' : 'text'"
+                      :show-password-on="field.sensitive ? 'click' : undefined"
+                      @update:value="(v: string) => { clientChannelConfig[field.key] = v }"
+                    />
+                  </div>
+                </NSpace>
+                <NButton type="primary" block :loading="clientChannelSaving" @click="saveClientChannel">
+                  {{ locale.startsWith('zh') ? '保存连接' : 'Save Connection' }}
+                </NButton>
+              </template>
+            </NSpace>
+
+            <NDivider style="margin: 16px 0;" />
+            <NButton block secondary @click="skipClientChannelStep">
+              {{ locale.startsWith('zh') ? '跳过，稍后配置' : 'Skip, configure later' }}
+            </NButton>
           </div>
         </NCard>
 

@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow, shell, app } from "electron";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execFile, execSync } from "node:child_process";
 import { gatewayProcess } from "./gateway-process.js";
@@ -99,6 +99,61 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     await shell.openExternal(url);
   });
 
+  // MCP: manage mcporter config at ~/.openclaw/config/mcporter.json
+  const mcporterConfigPath = join(homedir(), ".openclaw", "config", "mcporter.json");
+
+  function readMcporterConfig(): Record<string, unknown> {
+    try {
+      return JSON.parse(readFileSync(mcporterConfigPath, "utf8"));
+    } catch {
+      return { mcpServers: {} };
+    }
+  }
+
+  function writeMcporterConfig(config: Record<string, unknown>): void {
+    const dir = dirname(mcporterConfigPath);
+    if (!existsSync(dir)) {mkdirSync(dir, { recursive: true });}
+    writeFileSync(mcporterConfigPath, JSON.stringify(config, null, 2), "utf8");
+  }
+
+  ipcMain.handle("mcp:list-servers", () => {
+    const config = readMcporterConfig();
+    const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+    return Object.keys(servers);
+  });
+
+  ipcMain.handle("mcp:add-server", (_event, id: string, npmPackage: string, env?: Record<string, string>) => {
+    try {
+      const config = readMcporterConfig();
+      if (!config.mcpServers) {config.mcpServers = {};}
+      const servers = config.mcpServers as Record<string, unknown>;
+      const entry: Record<string, unknown> = {
+        command: "npx",
+        args: ["-y", npmPackage],
+      };
+      if (env && Object.keys(env).length > 0) {entry.env = env;}
+      servers[id] = entry;
+      writeMcporterConfig(config);
+      console.log("[ipc] mcp:add-server:", id, npmPackage);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle("mcp:remove-server", (_event, id: string) => {
+    try {
+      const config = readMcporterConfig();
+      const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+      delete servers[id];
+      writeMcporterConfig(config);
+      console.log("[ipc] mcp:remove-server:", id);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   // Skills: run `clawhub install <slug>` to download from ClawHub registry
   ipcMain.handle("skills:add", async (_event, skillSlug: string) => {
     // Find clawhub CLI: try PATH first, then npx fallback
@@ -153,6 +208,9 @@ export function unregisterIpcHandlers(): void {
     "app:get-version",
     "shell:open-external",
     "skills:add",
+    "mcp:list-servers",
+    "mcp:add-server",
+    "mcp:remove-server",
     "config:get-primary-model",
     "config:set-primary-model",
   ];

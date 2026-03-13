@@ -22,7 +22,15 @@ import {
   writeCache,
 } from "./web-shared.js";
 
-const SEARCH_PROVIDERS = ["brave", "gemini", "grok", "kimi", "perplexity"] as const;
+const SEARCH_PROVIDERS = [
+  "brave",
+  "gemini",
+  "grok",
+  "kimi",
+  "perplexity",
+  "serper",
+  "tavily",
+] as const;
 const DEFAULT_SEARCH_COUNT = 5;
 const MAX_SEARCH_COUNT = 10;
 
@@ -43,6 +51,9 @@ const KIMI_WEB_SEARCH_TOOL = {
   type: "builtin_function",
   function: { name: "$web_search" },
 } as const;
+
+const TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search";
+const SERPER_SEARCH_ENDPOINT = "https://google.serper.dev/search";
 
 const SEARCH_CACHE = new Map<string, CacheEntry<Record<string, unknown>>>();
 const BRAVE_FRESHNESS_SHORTCUTS = new Set(["pd", "pw", "pm", "py"]);
@@ -500,6 +511,14 @@ type GeminiConfig = {
   model?: string;
 };
 
+type TavilyConfig = {
+  apiKey?: string;
+};
+
+type SerperConfig = {
+  apiKey?: string;
+};
+
 type GeminiGroundingResponse = {
   candidates?: Array<{
     content?: {
@@ -593,6 +612,22 @@ function missingSearchKeyPayload(provider: (typeof SEARCH_PROVIDERS)[number]) {
       docs: "https://docs.openclaw.ai/tools/web",
     };
   }
+  if (provider === "tavily") {
+    return {
+      error: "missing_tavily_api_key",
+      message:
+        "web_search (tavily) needs a Tavily API key. Set TAVILY_API_KEY in the Gateway environment, or configure tools.web.search.tavily.apiKey.",
+      docs: "https://docs.openclaw.ai/tools/web",
+    };
+  }
+  if (provider === "serper") {
+    return {
+      error: "missing_serper_api_key",
+      message:
+        "web_search (serper) needs a Serper API key. Set SERPER_API_KEY in the Gateway environment, or configure tools.web.search.serper.apiKey.",
+      docs: "https://docs.openclaw.ai/tools/web",
+    };
+  }
   return {
     error: "missing_perplexity_api_key",
     message:
@@ -620,6 +655,12 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
   }
   if (raw === "perplexity") {
     return "perplexity";
+  }
+  if (raw === "tavily") {
+    return "tavily";
+  }
+  if (raw === "serper") {
+    return "serper";
   }
 
   // Auto-detect provider from available API keys (alphabetical order)
@@ -654,6 +695,22 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
         'web_search: no provider configured, auto-detected "kimi" from available API keys',
       );
       return "kimi";
+    }
+    // Serper
+    const serperConfig = resolveSerperConfig(search);
+    if (resolveSerperApiKey(serperConfig)) {
+      logVerbose(
+        'web_search: no provider configured, auto-detected "serper" from available API keys',
+      );
+      return "serper";
+    }
+    // Tavily
+    const tavilyConfig = resolveTavilyConfig(search);
+    if (resolveTavilyApiKey(tavilyConfig)) {
+      logVerbose(
+        'web_search: no provider configured, auto-detected "tavily" from available API keys',
+      );
+      return "tavily";
     }
     // Perplexity
     const perplexityConfig = resolvePerplexityConfig(search);
@@ -913,6 +970,46 @@ function resolveGeminiModel(gemini?: GeminiConfig): string {
   const fromConfig =
     gemini && "model" in gemini && typeof gemini.model === "string" ? gemini.model.trim() : "";
   return fromConfig || DEFAULT_GEMINI_MODEL;
+}
+
+function resolveTavilyConfig(search?: WebSearchConfig): TavilyConfig {
+  if (!search || typeof search !== "object") {
+    return {};
+  }
+  const tavily = "tavily" in search ? search.tavily : undefined;
+  if (!tavily || typeof tavily !== "object") {
+    return {};
+  }
+  return tavily as TavilyConfig;
+}
+
+function resolveTavilyApiKey(tavily?: TavilyConfig): string | undefined {
+  const fromConfig = normalizeApiKey(tavily?.apiKey);
+  if (fromConfig) {
+    return fromConfig;
+  }
+  const fromEnv = normalizeApiKey(process.env.TAVILY_API_KEY);
+  return fromEnv || undefined;
+}
+
+function resolveSerperConfig(search?: WebSearchConfig): SerperConfig {
+  if (!search || typeof search !== "object") {
+    return {};
+  }
+  const serper = "serper" in search ? search.serper : undefined;
+  if (!serper || typeof serper !== "object") {
+    return {};
+  }
+  return serper as SerperConfig;
+}
+
+function resolveSerperApiKey(serper?: SerperConfig): string | undefined {
+  const fromConfig = normalizeApiKey(serper?.apiKey);
+  if (fromConfig) {
+    return fromConfig;
+  }
+  const fromEnv = normalizeApiKey(process.env.SERPER_API_KEY);
+  return fromEnv || undefined;
 }
 
 async function withTrustedWebSearchEndpoint<T>(
@@ -1577,6 +1674,78 @@ async function runBraveLlmContextSearch(params: {
   );
 }
 
+async function runTavilySearch(params: {
+  query: string;
+  apiKey: string;
+  count: number;
+  timeoutSeconds: number;
+}): Promise<Array<{ title: string; url: string; content: string; score: number }>> {
+  return withTrustedWebSearchEndpoint(
+    {
+      url: TAVILY_SEARCH_ENDPOINT,
+      timeoutSeconds: params.timeoutSeconds,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: params.query,
+          max_results: params.count,
+          api_key: params.apiKey,
+        }),
+      },
+    },
+    async (response) => {
+      const { text } = await readResponseText(response);
+      const data = JSON.parse(text) as {
+        results?: Array<{ title?: string; url?: string; content?: string; score?: number }>;
+      };
+      return (data.results ?? []).map((r) => ({
+        title: r.title ?? "",
+        url: r.url ?? "",
+        content: r.content ?? "",
+        score: r.score ?? 0,
+      }));
+    },
+  );
+}
+
+async function runSerperSearch(params: {
+  query: string;
+  apiKey: string;
+  count: number;
+  timeoutSeconds: number;
+}): Promise<Array<{ title: string; url: string; snippet: string; position: number }>> {
+  return withTrustedWebSearchEndpoint(
+    {
+      url: SERPER_SEARCH_ENDPOINT,
+      timeoutSeconds: params.timeoutSeconds,
+      init: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-KEY": params.apiKey,
+        },
+        body: JSON.stringify({
+          q: params.query,
+          num: params.count,
+        }),
+      },
+    },
+    async (response) => {
+      const { text } = await readResponseText(response);
+      const data = JSON.parse(text) as {
+        organic?: Array<{ title?: string; link?: string; snippet?: string; position?: number }>;
+      };
+      return (data.organic ?? []).map((r) => ({
+        title: r.title ?? "",
+        url: r.link ?? "",
+        snippet: r.snippet ?? "",
+        position: r.position ?? 0,
+      }));
+    },
+  );
+}
+
 async function runWebSearch(params: {
   query: string;
   count: number;
@@ -1738,6 +1907,70 @@ async function runWebSearch(params: {
       },
       content: wrapWebContent(content),
       citations,
+    };
+    writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
+    return payload;
+  }
+
+  if (params.provider === "tavily") {
+    const results = await runTavilySearch({
+      query: params.query,
+      apiKey: params.apiKey,
+      count: params.count,
+      timeoutSeconds: params.timeoutSeconds,
+    });
+
+    const mapped = results.map((r) => ({
+      title: wrapWebContent(r.title, "web_search"),
+      url: r.url,
+      content: wrapWebContent(r.content, "web_search"),
+      score: r.score,
+    }));
+
+    const payload = {
+      query: params.query,
+      provider: params.provider,
+      count: mapped.length,
+      tookMs: Date.now() - start,
+      externalContent: {
+        untrusted: true,
+        source: "web_search",
+        provider: params.provider,
+        wrapped: true,
+      },
+      results: mapped,
+    };
+    writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
+    return payload;
+  }
+
+  if (params.provider === "serper") {
+    const results = await runSerperSearch({
+      query: params.query,
+      apiKey: params.apiKey,
+      count: params.count,
+      timeoutSeconds: params.timeoutSeconds,
+    });
+
+    const mapped = results.map((r) => ({
+      title: wrapWebContent(r.title, "web_search"),
+      url: r.url,
+      snippet: wrapWebContent(r.snippet, "web_search"),
+      position: r.position,
+    }));
+
+    const payload = {
+      query: params.query,
+      provider: params.provider,
+      count: mapped.length,
+      tookMs: Date.now() - start,
+      externalContent: {
+        untrusted: true,
+        source: "web_search",
+        provider: params.provider,
+        wrapped: true,
+      },
+      results: mapped,
     };
     writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
     return payload;
@@ -1909,6 +2142,8 @@ export function createWebSearchTool(options?: {
   const grokConfig = resolveGrokConfig(search);
   const geminiConfig = resolveGeminiConfig(search);
   const kimiConfig = resolveKimiConfig(search);
+  const tavilyConfig = resolveTavilyConfig(search);
+  const serperConfig = resolveSerperConfig(search);
   const braveConfig = resolveBraveConfig(search);
   const braveMode = resolveBraveMode(braveConfig);
 
@@ -1923,9 +2158,13 @@ export function createWebSearchTool(options?: {
           ? "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search."
           : provider === "gemini"
             ? "Search the web using Gemini with Google Search grounding. Returns AI-synthesized answers with citations from Google Search."
-            : braveMode === "llm-context"
-              ? "Search the web using Brave Search LLM Context API. Returns pre-extracted page content (text chunks, tables, code blocks) optimized for LLM grounding."
-              : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
+            : provider === "tavily"
+              ? "Search the web using Tavily. Returns structured results with titles, URLs, and content snippets."
+              : provider === "serper"
+                ? "Search the web using Serper (Google Search). Returns structured organic results with titles, URLs, and snippets."
+                : braveMode === "llm-context"
+                  ? "Search the web using Brave Search LLM Context API. Returns pre-extracted page content (text chunks, tables, code blocks) optimized for LLM grounding."
+                  : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
 
   return {
     label: "Web Search",
@@ -1949,7 +2188,11 @@ export function createWebSearchTool(options?: {
               ? resolveKimiApiKey(kimiConfig)
               : provider === "gemini"
                 ? resolveGeminiApiKey(geminiConfig)
-                : resolveSearchApiKey(search);
+                : provider === "tavily"
+                  ? resolveTavilyApiKey(tavilyConfig)
+                  : provider === "serper"
+                    ? resolveSerperApiKey(serperConfig)
+                    : resolveSearchApiKey(search);
 
       if (!apiKey) {
         return jsonResult(missingSearchKeyPayload(provider));
@@ -2216,6 +2459,8 @@ export const __testing = {
   resolveKimiModel,
   resolveKimiBaseUrl,
   extractKimiCitations,
+  resolveTavilyApiKey,
+  resolveSerperApiKey,
   resolveRedirectUrl: resolveCitationRedirectUrl,
   resolveBraveMode,
   mapBraveLlmContextResults,
